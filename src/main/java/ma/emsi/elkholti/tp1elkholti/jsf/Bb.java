@@ -1,6 +1,7 @@
 package ma.emsi.elkholti.tp1elkholti.jsf;
 
-import ma.emsi.elkholti.tp1elkholti.service.GenerateurReponse;
+import ma.emsi.elkholti.tp1elkholti.llm.JsonAdapterPourGemini;
+import ma.emsi.elkholti.tp1elkholti.llm.LlmInteraction;
 import jakarta.faces.application.FacesMessage;
 import jakarta.faces.context.FacesContext;
 import jakarta.faces.model.SelectItem;
@@ -11,6 +12,7 @@ import jakarta.inject.Named;
 import java.io.Serializable;
 import java.util.ArrayList;
 import java.util.List;
+import java.util.Arrays;
 
 /**
  * Backing bean pour la page JSF index.xhtml.
@@ -20,6 +22,11 @@ import java.util.List;
 @Named
 @ViewScoped
 public class Bb implements Serializable {
+    private boolean debug = false;
+
+    private String texteRequeteJson;
+
+    private String texteReponseJson;
 
     /**
      * Rôle "système" que l'on attribuera plus tard à un LLM.
@@ -55,7 +62,7 @@ public class Bb implements Serializable {
      * Service pour modifier la question et générer la réponse.
      */
     @Inject
-    private GenerateurReponse generateurReponse;
+    private JsonAdapterPourGemini jsonAdapter;
 
     /**
      * Contexte JSF. Utilisé pour qu'un message d'erreur s'affiche dans le formulaire.
@@ -93,6 +100,30 @@ public class Bb implements Serializable {
         return this.reponse;
     }
 
+    public boolean isDebug() {
+        return debug;
+    }
+
+    public void setDebug(boolean debug) {
+        this.debug = debug;
+    }
+
+    public String getTexteRequeteJson() {
+        return texteRequeteJson;
+    }
+
+    public void setTexteRequeteJson(String texteRequeteJson) {
+        this.texteRequeteJson = texteRequeteJson;
+    }
+
+    public String getTexteReponseJson() {
+        return texteReponseJson;
+    }
+
+    public void setTexteReponseJson(String texteReponseJson) {
+        this.texteReponseJson = texteReponseJson;
+    }
+
     /**
      * setter indispensable pour le textarea.
      *
@@ -119,23 +150,53 @@ public class Bb implements Serializable {
      * @return null pour rester sur la même page.
      */
     public String envoyer() {
+
         if (this.question == null || this.question.isBlank()) {
-            // Erreur ! Le formulaire va être réaffiché en réponse à la requête POST, avec un message d'erreur.
-            FacesMessage message = new FacesMessage(FacesMessage.SEVERITY_ERROR,
-                    "Texte question vide", "Il manque le texte de la question");
+            FacesMessage message = new FacesMessage(
+                    FacesMessage.SEVERITY_ERROR,
+                    "Texte question vide",
+                    "Il manque le texte de la question"
+            );
+
             facesContext.addMessage(null, message);
             return null;
         }
 
-        // Traite la question pour construire la réponse.
-        if (this.conversation.isEmpty()) { // Si la conversation n'a pas encore commencé
-            // Fige la liste déroulante qui permet de choisir le rôle système
-            this.roleSystemeChangeable = false;
-        }
-        this.reponse = this.generateurReponse.genererReponse(this.question, this.roleSysteme);
+        // Si la conversation n'a pas encore commencé
+        if (this.conversation.isEmpty()) {
 
-        // La conversation contient l'historique des questions-réponses depuis le début.
+            // Fige la liste déroulante
+            this.roleSystemeChangeable = false;
+
+            // Transmet le rôle système à JsonAdapter
+            this.jsonAdapter.setSystemRole(this.roleSysteme);
+        }
+
+        try {
+            LlmInteraction interaction =
+                    jsonAdapter.envoyerRequete(question);
+
+            this.reponse = interaction.reponseExtraite();
+            this.texteRequeteJson = interaction.questionJson();
+            this.texteReponseJson = interaction.reponseJson();
+
+        } catch (Exception e) {
+
+            this.reponse = "Erreur : " + e.getMessage();
+
+            FacesMessage message = new FacesMessage(
+                    FacesMessage.SEVERITY_ERROR,
+                    "Problème de connexion avec l'API du LLM",
+                    "Problème de connexion avec l'API du LLM"
+                            + e.getMessage() + "\n"
+                            + Arrays.toString(e.getStackTrace())
+            );
+
+            facesContext.addMessage(null, message);
+        }
+
         afficherConversation();
+
         return null;
     }
 
